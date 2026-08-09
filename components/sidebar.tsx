@@ -10,7 +10,8 @@ import {
   ChevronDown, 
   FileText, 
   LogOut, 
-  Info 
+  Info,
+  Users 
 } from 'lucide-react'
 import { useState, useEffect, JSX } from 'react'
 import { logout } from '@/app/actions/auth'
@@ -106,6 +107,19 @@ export function Sidebar(): JSX.Element {
         >
           <Trophy className="w-5 h-5" />
           <span className="font-semibold">Rankings</span>
+        </Link>
+
+        {/* Community Link */}
+        <Link 
+          href="/community" 
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
+            pathname === '/community' 
+              ? 'bg-slate-800 text-white font-semibold' 
+              : 'text-slate-300 hover:bg-slate-800/40 hover:text-white'
+          }`}
+        >
+          <Users className="w-5 h-5" />
+          <span className="font-semibold">Community</span>
         </Link>
 
         {/* Logs Link */}

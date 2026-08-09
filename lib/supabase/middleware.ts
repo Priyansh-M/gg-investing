@@ -37,7 +37,8 @@ export async function updateSession(request: NextRequest) {
   // 1. Routes requiring authentication (Root is now protected!)
   const isProtectedRoute = 
     pathname === '/' || 
-    pathname.startsWith('/menu')
+    pathname.startsWith('/menu') ||
+    pathname.startsWith('/community')
 
   // 2. Unauthenticated auth routes (Only login/signup)
   const isAuthRoute = 
