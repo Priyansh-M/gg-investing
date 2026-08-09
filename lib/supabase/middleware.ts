@@ -34,14 +34,13 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // 1. Routes requiring authentication
+  // 1. Routes requiring authentication (Root is now protected!)
   const isProtectedRoute = 
-    pathname.startsWith('/dashboard') || 
+    pathname === '/' || 
     pathname.startsWith('/menu')
 
-  // 2. Unauthenticated auth routes
+  // 2. Unauthenticated auth routes (Only login/signup)
   const isAuthRoute = 
-    pathname === '/' || 
     pathname.startsWith('/login') || 
     pathname.startsWith('/signup')
 
@@ -52,10 +51,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // If LOGGED IN and accessing login, signup, or root page -> Redirect to /dashboard
+  // If LOGGED IN and accessing login or signup -> Redirect to root dashboard (/)
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
+    url.pathname = '/'
     return NextResponse.redirect(url)
   }
 
