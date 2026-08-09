@@ -34,10 +34,11 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // 1. Routes requiring authentication (Root is now protected!)
+  // 1. Routes requiring authentication
   const isProtectedRoute = 
     pathname === '/' || 
     pathname.startsWith('/menu') ||
+    pathname.startsWith('/profile') || // <-- Added profile protection here
     pathname.startsWith('/community')
 
   // 2. Unauthenticated auth routes (Only login/signup)
