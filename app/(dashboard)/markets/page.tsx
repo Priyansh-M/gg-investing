@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { MarketsClient } from '@/components/markets-client'
-import { QuantRiskPanel } from '@/components/quant-risk-panel' // <-- 1. Imported the new panel
+import { QuantRiskPanel } from '@/components/quant-risk-panel'
 
 export default async function MarketsPage() {
   const supabase = await createClient()
@@ -22,8 +22,7 @@ export default async function MarketsPage() {
     .select('*')
     .order('symbol')
 
-  // 3. Fetch User Holdings 
-  // (CRITICAL: Changed to select '*' so our math function gets the 'average_buy_price')
+  // 3. Fetch User Holdings with all columns
   const { data: holdings } = await supabase
     .from('holdings')
     .select('*')
@@ -31,18 +30,16 @@ export default async function MarketsPage() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
-      
-      {/* 4. Render the Quant Risk Panel at the top of the page */}
+      {/* 4. Quant Risk Panel at the top */}
       <QuantRiskPanel holdings={holdings || []} />
 
-      {/* 5. Render your existing trading client below it */}
+      {/* 5. Trading client below */}
       <MarketsClient
-        userId={user.id} // <--- ADDED THIS PROP
+        userId={user.id}
         stocks={stocks || []}
         holdings={holdings || []}
         cashBalance={Number(profile?.cash_balance || 0)}
       />
-      
     </div>
   )
 }
