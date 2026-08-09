@@ -4,8 +4,8 @@ import { Sidebar } from '@/components/sidebar'
 import { Toaster } from 'sonner'
 
 export const metadata: Metadata = {
-  title: 'GG Investing',
-  description: 'Virtual Stock Market',
+  title: 'Investement Simulator',
+  description: 'Paper trading and investment simulation platfor',
 }
 
 export default function RootLayout({
