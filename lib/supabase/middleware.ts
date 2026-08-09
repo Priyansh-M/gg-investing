@@ -27,31 +27,32 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // Validate the current user
+  // Validate current user session
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   const pathname = request.nextUrl.pathname
 
-  // 1. List all routes that REQUIRE logging in
+  // 1. Routes requiring authentication
   const isProtectedRoute = 
     pathname.startsWith('/dashboard') || 
     pathname.startsWith('/menu')
 
-  // 2. List auth routes (pages unauthenticated users visit)
+  // 2. Unauthenticated auth routes
   const isAuthRoute = 
+    pathname === '/' || 
     pathname.startsWith('/login') || 
     pathname.startsWith('/signup')
 
-  // If trying to access a protected route without being logged in -> Redirect to /login
+  // If NOT logged in and accessing a protected route -> Redirect to /login
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  // If already logged in and trying to access /login or /signup -> Redirect to /dashboard
+  // If LOGGED IN and accessing login, signup, or root page -> Redirect to /dashboard
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'

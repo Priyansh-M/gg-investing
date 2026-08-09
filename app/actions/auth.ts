@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
 export async function login(formData: FormData) {
@@ -18,7 +19,8 @@ export async function login(formData: FormData) {
     return { error: error.message }
   }
 
-  // Redirect to dashboard upon successful login
+  // Refresh Next.js layout cache and redirect to dashboard
+  revalidatePath('/', 'layout')
   redirect('/dashboard')
 }
 
@@ -53,7 +55,8 @@ export async function signup(formData: FormData) {
     }
   }
 
-  // Redirect to dashboard upon successful signup
+  // Refresh Next.js layout cache and redirect to dashboard
+  revalidatePath('/', 'layout')
   redirect('/dashboard')
 }
 
@@ -61,7 +64,8 @@ export async function logout() {
   const supabase = await createClient()
   await supabase.auth.signOut()
 
-  // Redirect back to login page
+  // Refresh Next.js layout cache and redirect to login page
+  revalidatePath('/', 'layout')
   redirect('/login')
 }
 
@@ -97,6 +101,7 @@ export async function updateUsername(newUsername: string) {
     return { error: error.message }
   }
 
+  revalidatePath('/', 'layout')
   return { success: true }
 }
 
@@ -131,5 +136,6 @@ export async function deleteAccount() {
 
   // 3. Clear session and redirect to login page
   await supabase.auth.signOut()
+  revalidatePath('/', 'layout')
   redirect('/login')
 }
