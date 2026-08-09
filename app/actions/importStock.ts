@@ -3,13 +3,22 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-export async function importRealStockToSandbox(formData: FormData) {
-  const symbol = formData.get('symbol')?.toString().toUpperCase()
+export async function importRealStockToSandbox(input: string | FormData) {
+  // 1. Extract symbol whether passed directly as a string or via FormData
+  const symbol = typeof input === 'string'
+    ? input.trim().toUpperCase()
+    : input.get('symbol')?.toString().trim().toUpperCase()
+
   if (!symbol) return
 
   try {
     // 1. Fetch real-time data from Yahoo Finance's Quote API (Gets Price, Name, AND Market Cap!)
-    const res = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`, { cache: 'no-store' })
+    const res = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`, { 
+      cache: 'no-store',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    })
     const data = await res.json()
     
     // Extract the stock data safely

@@ -115,12 +115,19 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // Auto-submits the import form cleanly without state race conditions
   const handleSelectSearchResult = (symbol: string) => {
-    setSearchQuery(symbol)
     setShowDropdown(false)
-    setTimeout(() => {
-      if (formRef.current) formRef.current.requestSubmit()
-    }, 100)
+
+    if (formRef.current) {
+      const input = formRef.current.querySelector('input[name="symbol"]') as HTMLInputElement
+      if (input) {
+        input.value = symbol
+      }
+      formRef.current.requestSubmit()
+    }
+
+    setSearchQuery('')
   }
 
   // Handle Macro Catalyst Submission
@@ -135,7 +142,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
 
   // Formatting chart data (Oldest -> Newest order)
   const rawHistory: number[] = selectedStock?.price_history || [selectedStock?.current_price || 0, selectedStock?.current_price || 0]
-  const chronologicalHistory = [...rawHistory] // Removed .reverse() to fix graph direction
+  const chronologicalHistory = [...rawHistory]
 
   const chartData = chronologicalHistory.map((price: number, index: number) => ({
     time: `Point ${index + 1}`,
@@ -313,7 +320,6 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                 <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <XAxis dataKey="time" stroke="#475569" fontSize={11} tickLine={false} axisLine={{ stroke: '#1e293b' }} />
                   
-                  {/* FIX: Formatted Y-Axis with two decimals & dynamic bounds */}
                   <YAxis 
                     domain={['dataMin - 0.05', 'dataMax + 0.05']} 
                     stroke="#475569" 

@@ -129,12 +129,19 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // Auto-submits the search form cleanly without state race conditions
   const handleSelectSearchResult = (symbol: string) => {
-    setSearchQuery(symbol)
     setShowDropdown(false)
-    setTimeout(() => {
-      if (formRef.current) formRef.current.requestSubmit()
-    }, 100)
+
+    if (formRef.current) {
+      const input = formRef.current.querySelector('input[name="symbol"]') as HTMLInputElement
+      if (input) {
+        input.value = symbol
+      }
+      formRef.current.requestSubmit()
+    }
+
+    setSearchQuery('')
   }
 
   // Format Market Cap
