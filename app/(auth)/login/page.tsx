@@ -34,7 +34,7 @@ export default function AuthPage() {
         {/* Header Branding */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-white">
-            gg-<span className="text-[#F97316]">investing</span>
+            Investment <span className="text-[#F97316]">Simulator</span>
           </h1>
           <p className="text-sm text-slate-400 mt-2">
             {isSignUp ? 'Create your paper trading account' : 'Welcome back, trader'}

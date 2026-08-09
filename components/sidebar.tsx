@@ -30,10 +30,10 @@ export function Sidebar(): JSX.Element {
 
   return (
     <aside className="w-64 bg-[#121724] border-r border-slate-800 min-h-screen p-4 flex flex-col">
-      {/* Logo */}
+      {/* Brand Logo */}
       <div className="mb-8 px-4 mt-4">
         <h2 className="text-2xl font-extrabold text-amber-400 tracking-tight">
-          gg-<span className="text-white">investing</span>
+          Investment <span className="text-white">Simulator</span>
         </h2>
       </div>
 
@@ -49,19 +49,6 @@ export function Sidebar(): JSX.Element {
         >
           <LayoutDashboard className="w-5 h-5" />
           <span className="font-semibold">Dashboard</span>
-        </Link>
-
-        {/* Profile & Menu Link */}
-        <Link 
-          href="/menu" 
-          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
-            pathname === '/menu' 
-              ? 'bg-slate-800 text-white font-semibold' 
-              : 'text-slate-300 hover:bg-slate-800/40 hover:text-white'
-          }`}
-        >
-          <User className="w-5 h-5 text-amber-400" />
-          <span className="font-semibold">Profile & Menu</span>
         </Link>
 
         {/* Markets Dropdown Wrapper */}
@@ -135,13 +122,27 @@ export function Sidebar(): JSX.Element {
         </Link>
       </nav>
 
-      {/* Footer / About & Sign Out */}
+      {/* Footer / Profile, About & Sign Out */}
       <div className="mt-auto border-t border-slate-800 pt-4 space-y-1">
+        {/* Profile Link (Moved here, right above About) */}
+        <Link 
+          href="/profile" 
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
+            pathname === '/profile' || pathname === '/menu'
+              ? 'bg-slate-800 text-white font-semibold' 
+              : 'text-slate-300 hover:bg-slate-800/40 hover:text-white'
+          }`}
+        >
+          <User className="w-5 h-5 text-amber-400" />
+          <span className="font-semibold">Profile</span>
+        </Link>
+
+        {/* About Link */}
         <Link 
           href="/about" 
           className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
             pathname === '/about'
-              ? 'bg-slate-800 text-white'
+              ? 'bg-slate-800 text-white font-semibold'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
           }`}
         >
