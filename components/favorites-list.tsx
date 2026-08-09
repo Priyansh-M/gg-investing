@@ -207,9 +207,6 @@ export function FavoritesList({ userId }: FavoritesListProps) {
                   </div>
                   <h4 className="text-white font-bold text-lg">{stock.company_name} ({stock.symbol})</h4>
                 </div>
-                <button className="px-4 py-2 border border-emerald-500/50 text-emerald-400 rounded-lg hover:bg-emerald-500/10 text-sm font-medium transition-colors whitespace-nowrap">
-                  Trade Now
-                </button>
               </div>
 
               <div className="flex flex-wrap justify-between items-end gap-4">
