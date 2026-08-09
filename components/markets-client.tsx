@@ -52,14 +52,14 @@ interface Props {
   cashBalance: number
 }
 
-export function MarketsClient({ userId, stocks, holdings }: Props) {
+export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance }: Props) {
   const [selectedSymbol, setSelectedSymbol] = useState<string>(stocks[0]?.symbol || 'AAPL')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
   
-  // NEW: State to hold live Finnhub data
+  // State to hold live Finnhub data
   const [liveData, setLiveData] = useState<Record<string, any>>({})
 
   const formRef = useRef<HTMLFormElement>(null)
@@ -137,7 +137,7 @@ export function MarketsClient({ userId, stocks, holdings }: Props) {
     }, 100)
   }
 
-  // FIXED: Accurate Market Cap Formatter
+  // Format Market Cap
   const formatLargeNumber = (val?: number | string | null) => {
     if (!val || isNaN(Number(val)) || Number(val) <= 0) return 'N/A'
     
@@ -413,6 +413,6 @@ export function MarketsClient({ userId, stocks, holdings }: Props) {
         </div>
       </div>
 
-    </div>
+    </div> 
   )
 }
