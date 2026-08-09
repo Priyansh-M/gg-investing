@@ -19,9 +19,9 @@ export async function login(formData: FormData) {
     return { error: error.message }
   }
 
-  // Refresh Next.js layout cache and redirect to dashboard
+  // Refresh Next.js layout cache and redirect to the root dashboard route
   revalidatePath('/', 'layout')
-  redirect('/dashboard')
+  redirect('/')
 }
 
 export async function signup(formData: FormData) {
@@ -55,9 +55,9 @@ export async function signup(formData: FormData) {
     }
   }
 
-  // Refresh Next.js layout cache and redirect to dashboard
+  // Refresh Next.js layout cache and redirect to the root dashboard route
   revalidatePath('/', 'layout')
-  redirect('/dashboard')
+  redirect('/')
 }
 
 export async function logout() {
