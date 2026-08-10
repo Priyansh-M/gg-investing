@@ -79,7 +79,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
   const impactRatio = (quantity * leverage) / liquidityPool
   const impactPercent = impactRatio * 100
 
-  // Autocomplete search
+  // Autocomplete search (Fetches external market results)
   useEffect(() => {
     if (searchQuery.trim().length < 1) {
       setSearchResults([])
@@ -118,14 +118,42 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Core Import & Switch Logic
-  const handleImportTicker = async (symbolToImport: string) => {
-    if (!symbolToImport || isImporting) return
+  // 1. Filter local simulated stocks matching the search query
+  const localMatches = searchQuery.trim()
+    ? stocks
+        .filter(
+          (s) =>
+            s.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            s.company_name.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+        .map((s) => ({ symbol: s.symbol, name: s.company_name }))
+    : []
 
-    const cleanSymbol = symbolToImport.trim().toUpperCase()
-    setIsImporting(true)
+  // Combine local simulated stocks with API search results (removing duplicates)
+  const combinedResults = [
+    ...localMatches,
+    ...searchResults.filter(
+      (apiItem) => !localMatches.some((local) => local.symbol.toUpperCase() === apiItem.symbol.toUpperCase())
+    ),
+  ]
+
+  // 2. Smart Handler: Switch immediately if simulated stock exists, else import from API
+  const handleSelectOrImport = async (symbolToHandle: string) => {
+    if (!symbolToHandle || isImporting) return
+
+    const cleanSymbol = symbolToHandle.trim().toUpperCase()
     setShowDropdown(false)
+    setSearchQuery('')
 
+    // CHECK 1: If stock is ALREADY in our simulated_stocks list, switch to it instantly!
+    const existingStock = stocks.find((s) => s.symbol.toUpperCase() === cleanSymbol)
+    if (existingStock) {
+      setSelectedSymbol(existingStock.symbol)
+      return
+    }
+
+    // CHECK 2: If it's NOT in simulated_stocks, import it from the API
+    setIsImporting(true)
     try {
       const formData = new FormData()
       formData.append('symbol', cleanSymbol)
@@ -133,11 +161,12 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
       const res = await importRealStockToSandbox(formData)
 
       if (res?.success) {
-        // Force Next.js to fetch the newly imported stock into the `stocks` prop
+        // Force Next.js server refresh to pull new row into `stocks` prop
         router.refresh()
         setSelectedSymbol(cleanSymbol)
+      } else {
+        console.error('Import failed:', res?.error)
       }
-      setSearchQuery('')
     } catch (err) {
       console.error('Failed to import stock:', err)
     } finally {
@@ -194,12 +223,12 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
           </div>
 
           <div className="flex flex-wrap gap-3 pt-2 border-t border-slate-800/80">
-            {/* Search Input */}
+            {/* Search Input & Smart Dropdown */}
             <div ref={searchContainerRef} className="relative w-full sm:w-72">
               <form 
                 onSubmit={(e) => {
                   e.preventDefault()
-                  handleImportTicker(searchQuery)
+                  handleSelectOrImport(searchQuery)
                 }} 
                 className="flex gap-2"
               >
@@ -226,26 +255,36 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                   variant="outline" 
                   className="h-8 text-xs bg-blue-950/40 border-blue-800/60 text-blue-300 hover:bg-blue-900/60 flex items-center gap-1 min-w-[75px]"
                 >
-                  {isImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3" /> Import</>}
+                  {isImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3" /> Select</>}
                 </Button>
               </form>
 
-              {/* Autocomplete Dropdown */}
-              {showDropdown && searchResults.length > 0 && (
+              {/* Combined Autocomplete Dropdown */}
+              {showDropdown && combinedResults.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-[#121724] border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50 max-h-52 overflow-y-auto custom-scrollbar">
-                  {searchResults.map((item, idx) => (
-                    <button
-                      key={`${item.symbol}-${idx}`}
-                      type="button"
-                      onClick={() => handleImportTicker(item.symbol)}
-                      className="w-full text-left px-3 py-2 hover:bg-slate-800/80 border-b border-slate-800/50 last:border-0 flex justify-between items-center transition-colors"
-                    >
-                      <div>
-                        <span className="font-bold text-white text-xs block">{item.symbol}</span>
-                        <span className="text-[10px] text-slate-400 truncate max-w-[150px] block">{item.name}</span>
-                      </div>
-                    </button>
-                  ))}
+                  {combinedResults.map((item, idx) => {
+                    const inSandbox = stocks.some((s) => s.symbol.toUpperCase() === item.symbol.toUpperCase())
+                    return (
+                      <button
+                        key={`${item.symbol}-${idx}`}
+                        type="button"
+                        onClick={() => handleSelectOrImport(item.symbol)}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-800/80 border-b border-slate-800/50 last:border-0 flex justify-between items-center transition-colors"
+                      >
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-white text-xs">{item.symbol}</span>
+                            {inSandbox && (
+                              <span className="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-1.5 py-0.2 rounded font-semibold">
+                                In Sandbox
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 truncate max-w-[150px] block">{item.name}</span>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
