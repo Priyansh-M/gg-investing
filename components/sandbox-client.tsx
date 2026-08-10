@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useTransition } from 'react'
 import { executeSandboxTrade, applyMacroCatalyst } from '@/app/actions/sandboxTrade'
 import { addFunds } from '@/app/actions/addFunds'
 import { importRealStockToSandbox } from '@/app/actions/importStock'
@@ -59,14 +59,15 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
   const [macroImpact, setMacroImpact] = useState<number>(-15)
   const [isApplyingMacro, setIsApplyingMacro] = useState<boolean>(false)
 
-  // Search States
+  // Search & Import States
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
+  const [isPending, startTransition] = useTransition()
   
   const searchContainerRef = useRef<HTMLDivElement>(null)
-  const formRef = useRef<HTMLFormElement>(null)
 
   const selectedStock = stocks.find((s) => s.symbol === selectedSymbol) || stocks[0]
   const userHolding = holdings.find((h) => h.symbol === selectedSymbol)
@@ -115,19 +116,32 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Auto-submits the import form cleanly without state race conditions
-  const handleSelectSearchResult = (symbol: string) => {
+  // Core Import Handler (Calls Supabase Server Action & switches graph focus)
+  const handleImportTicker = async (symbolToImport: string) => {
+    if (!symbolToImport || isImporting) return
+
+    const cleanSymbol = symbolToImport.trim().toUpperCase()
+    setIsImporting(true)
     setShowDropdown(false)
 
-    if (formRef.current) {
-      const input = formRef.current.querySelector('input[name="symbol"]') as HTMLInputElement
-      if (input) {
-        input.value = symbol
-      }
-      formRef.current.requestSubmit()
-    }
+    try {
+      const formData = new FormData()
+      formData.append('symbol', cleanSymbol)
 
-    setSearchQuery('')
+      // 1. Trigger Supabase insertion action
+      await importRealStockToSandbox(formData)
+
+      // 2. Immediately switch active view to imported ticker
+      startTransition(() => {
+        setSelectedSymbol(cleanSymbol)
+      })
+
+      setSearchQuery('')
+    } catch (err) {
+      console.error('Failed to import stock:', err)
+    } finally {
+      setIsImporting(false)
+    }
   }
 
   // Handle Macro Catalyst Submission
@@ -140,12 +154,13 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
     setIsApplyingMacro(false)
   }
 
-  // Formatting chart data (Oldest -> Newest order)
-  const rawHistory: number[] = selectedStock?.price_history || [selectedStock?.current_price || 0, selectedStock?.current_price || 0]
-  const chronologicalHistory = [...rawHistory]
+  // Formatting chart data (If initialized, contains ONLY [current_price])
+  const rawHistory: number[] = selectedStock?.price_history && selectedStock.price_history.length > 0 
+    ? selectedStock.price_history 
+    : [selectedStock?.current_price || 0]
 
-  const chartData = chronologicalHistory.map((price: number, index: number) => ({
-    time: `Point ${index + 1}`,
+  const chartData = rawHistory.map((price: number, index: number) => ({
+    time: index === 0 ? 'Start (Current Price)' : `Point ${index + 1}`,
     price: Number(price)
   }))
 
@@ -172,9 +187,15 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
           </div>
 
           <div className="flex flex-wrap gap-3 pt-2 border-t border-slate-800/80">
-            {/* Search Input */}
+            {/* Search & Import Bar */}
             <div ref={searchContainerRef} className="relative w-full sm:w-72">
-              <form ref={formRef} action={async (formData) => { await importRealStockToSandbox(formData) }} className="flex gap-2">
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  handleImportTicker(searchQuery)
+                }} 
+                className="flex gap-2"
+              >
                 <div className="relative flex-1">
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                   <input 
@@ -183,7 +204,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onFocus={() => searchQuery.trim().length > 0 && setShowDropdown(true)}
-                    placeholder="Search or import ticker..." 
+                    placeholder="Search ticker (e.g. TSLA, NVDA)..." 
                     className="w-full bg-[#0b0e14] border border-slate-700 text-white text-xs rounded-lg pl-8 pr-8 py-1.5 outline-none uppercase placeholder:normal-case focus:border-blue-500 transition-colors"
                     required
                     autoComplete="off"
@@ -192,25 +213,31 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                     <Loader2 className="w-3 h-3 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 animate-spin" />
                   )}
                 </div>
-                <Button type="submit" variant="outline" className="h-8 text-xs bg-blue-950/40 border-blue-800/60 text-blue-300 hover:bg-blue-900/60 flex items-center gap-1" onClick={() => setTimeout(() => setSearchQuery(''), 500)}>
-                  <Plus className="w-3 h-3" /> Import
+                <Button 
+                  type="submit" 
+                  disabled={isImporting}
+                  variant="outline" 
+                  className="h-8 text-xs bg-blue-950/40 border-blue-800/60 text-blue-300 hover:bg-blue-900/60 flex items-center gap-1 min-w-[75px]"
+                >
+                  {isImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3" /> Import</>}
                 </Button>
               </form>
 
-              {/* Dropdown */}
+              {/* Autocomplete Dropdown */}
               {showDropdown && searchResults.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-[#121724] border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50 max-h-52 overflow-y-auto custom-scrollbar">
                   {searchResults.map((item, idx) => (
                     <button
                       key={`${item.symbol}-${idx}`}
                       type="button"
-                      onClick={() => handleSelectSearchResult(item.symbol)}
+                      onClick={() => handleImportTicker(item.symbol)}
                       className="w-full text-left px-3 py-2 hover:bg-slate-800/80 border-b border-slate-800/50 last:border-0 flex justify-between items-center transition-colors"
                     >
                       <div>
                         <span className="font-bold text-white text-xs block">{item.symbol}</span>
                         <span className="text-[10px] text-slate-400 truncate max-w-[150px] block">{item.name}</span>
                       </div>
+                      <span className="text-[10px] text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-1.5 py-0.5 rounded">Select</span>
                     </button>
                   ))}
                 </div>
@@ -278,11 +305,11 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                 <div className="flex items-center gap-2">
                   <h3 className="text-white font-bold text-lg">{selectedStock?.company_name || selectedSymbol}</h3>
                   <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                    {selectedStock?.symbol}
+                    {selectedStock?.symbol || selectedSymbol}
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Real Historical Base + Active Market Maker Impact
+                  Sandbox State: Initialized with Current Real Market Price
                 </p>
               </div>
               
@@ -321,7 +348,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                   <XAxis dataKey="time" stroke="#475569" fontSize={11} tickLine={false} axisLine={{ stroke: '#1e293b' }} />
                   
                   <YAxis 
-                    domain={['dataMin - 0.05', 'dataMax + 0.05']} 
+                    domain={['dataMin - 1', 'dataMax + 1']} 
                     stroke="#475569" 
                     fontSize={11} 
                     tickFormatter={(val) => `$${Number(val).toFixed(2)}`} 
@@ -334,14 +361,20 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                     formatter={(value: any) => [`$${Number(value).toFixed(2)}`, 'Price']}
                     itemStyle={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '12px' }} 
                   />
-                  <Line type="monotone" dataKey="price" stroke={isPriceUp ? '#10b981' : '#3b82f6'} strokeWidth={2.5} dot={{ r: 3, fill: isPriceUp ? '#10b981' : '#3b82f6' }} />
+                  <Line 
+                    type="monotone" 
+                    dataKey="price" 
+                    stroke={isPriceUp ? '#10b981' : '#3b82f6'} 
+                    strokeWidth={2.5} 
+                    dot={{ r: 4, fill: isPriceUp ? '#10b981' : '#3b82f6' }} 
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
         </div>
 
-        {/* REDESIGNED MARKET MAKER DESK */}
+        {/* MARKET MAKER DESK */}
         <div className="bg-[#121724] border border-slate-800 rounded-2xl p-6 h-fit space-y-6 shadow-xl">
           <div className="border-b border-slate-800 pb-4 flex justify-between items-center">
             <div>
