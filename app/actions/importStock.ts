@@ -47,7 +47,7 @@ export async function importRealStockToSandbox(input: string | FormData) {
 
     const supabase = await createClient()
 
-    // 3. Upsert to MAIN 'stocks' table (Preserves real market integrity)
+    // 3. Upsert to MAIN 'stocks' table (100% UNTOUCHED — Preserves real market integrity)
     const { error: mainStocksError } = await supabase.from('stocks').upsert({
       symbol: symbol,
       company_name: companyName,
@@ -65,7 +65,7 @@ export async function importRealStockToSandbox(input: string | FormData) {
     }
 
     // 4. Upsert to SANDBOX 'simulated_stocks' table
-    // price_history is initialized with ONLY [realPrice] for the sandbox chart
+    // Initialized with 2 points [realPrice, realPrice] so Recharts renders the baseline line immediately on select
     const { error: sandboxError } = await supabase.from('simulated_stocks').upsert({
       symbol: symbol,
       company_name: `${companyName} (Imported)`,
@@ -73,7 +73,7 @@ export async function importRealStockToSandbox(input: string | FormData) {
       base_price: realPrice,
       liquidity_pool: 10000000, // Standard market maker pool balance
       sector: sector,
-      price_history: [realPrice] // Chart starts with ONLY the current live price point
+      price_history: [realPrice, realPrice] // 2 points so graph line updates immediately
     }, { onConflict: 'symbol' })
 
     if (sandboxError) {

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef, useTransition } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { executeSandboxTrade, applyMacroCatalyst } from '@/app/actions/sandboxTrade'
 import { addFunds } from '@/app/actions/addFunds'
 import { importRealStockToSandbox } from '@/app/actions/importStock'
@@ -10,7 +11,6 @@ import { Button } from '@/components/ui/button'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { 
   Zap, 
-  TrendingUp, 
   Plus, 
   ShieldAlert, 
   DollarSign, 
@@ -50,6 +50,8 @@ interface SandboxClientProps {
 }
 
 export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: SandboxClientProps) {
+  const router = useRouter()
+
   const [selectedSymbol, setSelectedSymbol] = useState<string>(stocks[0]?.symbol || 'AAPL')
   const [quantity, setQuantity] = useState<number>(1)
   const [leverage, setLeverage] = useState<number>(1)
@@ -65,10 +67,10 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
   const [isSearching, setIsSearching] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
-  const [isPending, startTransition] = useTransition()
-  
+
   const searchContainerRef = useRef<HTMLDivElement>(null)
 
+  // Keep selectedStock tied to prop changes
   const selectedStock = stocks.find((s) => s.symbol === selectedSymbol) || stocks[0]
   const userHolding = holdings.find((h) => h.symbol === selectedSymbol)
   const ownedShares = userHolding ? Number(userHolding.quantity) : 0
@@ -116,7 +118,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Core Import Handler (Calls Supabase Server Action & switches graph focus)
+  // Core Import & Switch Logic
   const handleImportTicker = async (symbolToImport: string) => {
     if (!symbolToImport || isImporting) return
 
@@ -128,14 +130,13 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
       const formData = new FormData()
       formData.append('symbol', cleanSymbol)
 
-      // 1. Trigger Supabase insertion action
-      await importRealStockToSandbox(formData)
+      const res = await importRealStockToSandbox(formData)
 
-      // 2. Immediately switch active view to imported ticker
-      startTransition(() => {
+      if (res?.success) {
+        // Force Next.js to fetch the newly imported stock into the `stocks` prop
+        router.refresh()
         setSelectedSymbol(cleanSymbol)
-      })
-
+      }
       setSearchQuery('')
     } catch (err) {
       console.error('Failed to import stock:', err)
@@ -154,13 +155,19 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
     setIsApplyingMacro(false)
   }
 
-  // Formatting chart data (If initialized, contains ONLY [current_price])
+  // SAFE CHART DATA FIX: Duplicate single-point history so Recharts draws a line!
   const rawHistory: number[] = selectedStock?.price_history && selectedStock.price_history.length > 0 
     ? selectedStock.price_history 
     : [selectedStock?.current_price || 0]
 
-  const chartData = rawHistory.map((price: number, index: number) => ({
-    time: index === 0 ? 'Start (Current Price)' : `Point ${index + 1}`,
+  const displayHistory = rawHistory.length === 1 
+    ? [rawHistory[0], rawHistory[0]] 
+    : rawHistory
+
+  const chartData = displayHistory.map((price: number, index: number) => ({
+    time: displayHistory.length === 2 && rawHistory.length === 1
+      ? (index === 0 ? 'Start' : 'Current Price')
+      : `Point ${index + 1}`,
     price: Number(price)
   }))
 
@@ -187,7 +194,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
           </div>
 
           <div className="flex flex-wrap gap-3 pt-2 border-t border-slate-800/80">
-            {/* Search & Import Bar */}
+            {/* Search Input */}
             <div ref={searchContainerRef} className="relative w-full sm:w-72">
               <form 
                 onSubmit={(e) => {
@@ -204,7 +211,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onFocus={() => searchQuery.trim().length > 0 && setShowDropdown(true)}
-                    placeholder="Search ticker (e.g. TSLA, NVDA)..." 
+                    placeholder="Search or import ticker..." 
                     className="w-full bg-[#0b0e14] border border-slate-700 text-white text-xs rounded-lg pl-8 pr-8 py-1.5 outline-none uppercase placeholder:normal-case focus:border-blue-500 transition-colors"
                     required
                     autoComplete="off"
@@ -237,7 +244,6 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                         <span className="font-bold text-white text-xs block">{item.symbol}</span>
                         <span className="text-[10px] text-slate-400 truncate max-w-[150px] block">{item.name}</span>
                       </div>
-                      <span className="text-[10px] text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-1.5 py-0.5 rounded">Select</span>
                     </button>
                   ))}
                 </div>
@@ -309,7 +315,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Sandbox State: Initialized with Current Real Market Price
+                  Live Current Price Initialized
                 </p>
               </div>
               
@@ -344,7 +350,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
 
             <div className="w-full h-[310px] pt-4">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <XAxis dataKey="time" stroke="#475569" fontSize={11} tickLine={false} axisLine={{ stroke: '#1e293b' }} />
                   
                   <YAxis 
@@ -483,7 +489,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
         </div>
       </div>
 
-      {/* Stock Cards */}
+      {/* Stock Cards Grid */}
       <div className="pt-2">
         <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-1.5">
           <BarChart2 className="w-3.5 h-3.5 text-blue-400" />
