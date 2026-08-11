@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { executeSandboxTrade, applyMacroCatalyst } from '@/app/actions/sandboxTrade'
 import { addFunds } from '@/app/actions/addFunds'
@@ -21,7 +21,9 @@ import {
   Trash2,
   RotateCcw,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react'
 
 interface Stock {
@@ -51,15 +53,24 @@ interface SandboxClientProps {
 
 export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: SandboxClientProps) {
   const router = useRouter()
+  const [isPending, startTransition] = useTransition()
 
   const [selectedSymbol, setSelectedSymbol] = useState<string>(stocks[0]?.symbol || 'AAPL')
   const [quantity, setQuantity] = useState<number>(1)
   const [leverage, setLeverage] = useState<number>(1)
   const [tradeType, setTradeType] = useState<'buy' | 'sell'>('buy')
 
+  // Feedback banner state (Success / Error notifications)
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  // Loading States
+  const [isExecutingTrade, setIsExecutingTrade] = useState<boolean>(false)
+  const [isAddingFunds, setIsAddingFunds] = useState<boolean>(false)
+  const [isApplyingMacro, setIsApplyingMacro] = useState<boolean>(false)
+  const [isResetting, setIsResetting] = useState<boolean>(false)
+
   // Macro Catalyst State
   const [macroImpact, setMacroImpact] = useState<number>(-15)
-  const [isApplyingMacro, setIsApplyingMacro] = useState<boolean>(false)
 
   // Search & Import States
   const [searchQuery, setSearchQuery] = useState('')
@@ -70,9 +81,17 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
 
   const searchContainerRef = useRef<HTMLDivElement>(null)
 
-  // Keep selectedStock tied to prop changes
-  const selectedStock = stocks.find((s) => s.symbol === selectedSymbol) || stocks[0]
-  const userHolding = holdings.find((h) => h.symbol === selectedSymbol)
+  // FIX: Find matching stock or construct temporary fallback so selectedStock never collapses back to stocks[0]
+  const foundStock = stocks.find((s) => s.symbol.toUpperCase() === selectedSymbol.toUpperCase())
+  const selectedStock: Stock = foundStock || {
+    symbol: selectedSymbol,
+    company_name: selectedSymbol,
+    current_price: 0,
+    price_history: [0],
+    liquidity_pool: 100000
+  }
+
+  const userHolding = holdings.find((h) => h.symbol.toUpperCase() === selectedSymbol.toUpperCase())
   const ownedShares = userHolding ? Number(userHolding.quantity) : 0
 
   const liquidityPool = selectedStock?.liquidity_pool || 100000
@@ -144,6 +163,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
     const cleanSymbol = symbolToHandle.trim().toUpperCase()
     setShowDropdown(false)
     setSearchQuery('')
+    setFeedback(null)
 
     // CHECK 1: If stock is ALREADY in our simulated_stocks list, switch to it instantly!
     const existingStock = stocks.find((s) => s.symbol.toUpperCase() === cleanSymbol)
@@ -157,20 +177,144 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
     try {
       const formData = new FormData()
       formData.append('symbol', cleanSymbol)
+      formData.append('ticker', cleanSymbol)
 
-      const res = await importRealStockToSandbox(formData)
+      // Cast as any to prevent TS(1345) and TS(2339) errors for void returns
+      const res = (await importRealStockToSandbox(formData)) as any
 
-      if (res?.success) {
-        // Force Next.js server refresh to pull new row into `stocks` prop
-        router.refresh()
-        setSelectedSymbol(cleanSymbol)
+      if (res?.error) {
+        setFeedback({ type: 'error', message: String(res.error) })
       } else {
-        console.error('Import failed:', res?.error)
+        setSelectedSymbol(cleanSymbol)
+        setFeedback({ type: 'success', message: `Imported ${cleanSymbol} to simulated market at live price!` })
+        startTransition(() => {
+          router.refresh()
+        })
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to import stock:', err)
+      setFeedback({ type: 'error', message: err?.message || `Failed to import ${cleanSymbol}.` })
     } finally {
       setIsImporting(false)
+    }
+  }
+
+  // Handle Buy / Sell Trade Submission
+  const handleTradeSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsExecutingTrade(true)
+    setFeedback(null)
+
+    try {
+      const formData = new FormData(e.currentTarget)
+      
+      // Ensure key names match all expected backend variations
+      formData.set('symbol', selectedSymbol)
+      formData.set('quantity', quantity.toString())
+      formData.set('leverage', leverage.toString())
+      formData.set('multiplier', leverage.toString())
+      formData.set('action', tradeType)
+      formData.set('type', tradeType)
+      formData.set('tradeType', tradeType)
+
+      // Cast as any to prevent TS errors
+      const res = (await executeSandboxTrade(formData)) as any
+
+      if (res?.error) {
+        setFeedback({ type: 'error', message: String(res.error) })
+      } else {
+        setFeedback({
+          type: 'success',
+          message: `Successfully executed ${tradeType.toUpperCase()} order for ${quantity} shares of ${selectedSymbol}!`
+        })
+        startTransition(() => {
+          router.refresh()
+        })
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message || 'Trade execution failed.' })
+    } finally {
+      setIsExecutingTrade(false)
+    }
+  }
+
+  // Handle Inject Liquidity Submission
+  const handleAddFundsSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsAddingFunds(true)
+    setFeedback(null)
+
+    try {
+      const formData = new FormData(e.currentTarget)
+      const res = (await addFunds(formData)) as any
+
+      if (res?.error) {
+        setFeedback({ type: 'error', message: String(res.error) })
+      } else {
+        setFeedback({ type: 'success', message: 'Liquidity successfully added to cash balance!' })
+        startTransition(() => {
+          router.refresh()
+        })
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message || 'Failed to inject funds.' })
+    } finally {
+      setIsAddingFunds(false)
+    }
+  }
+
+  // Handle Remove Stock Submission
+  const handleRemoveStock = async (symbolToRemove: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm(`Are you sure you want to remove ${symbolToRemove} from simulated stocks?`)) return
+
+    setFeedback(null)
+    try {
+      const formData = new FormData()
+      formData.append('symbol', symbolToRemove)
+
+      const res = (await removeStock(formData)) as any
+      
+      if (res?.error) {
+        setFeedback({ type: 'error', message: String(res.error) })
+      } else {
+        setFeedback({ type: 'success', message: `Removed ${symbolToRemove} from simulated stocks.` })
+        if (selectedSymbol === symbolToRemove) {
+          const nextAvailable = stocks.find((s) => s.symbol !== symbolToRemove)
+          if (nextAvailable) setSelectedSymbol(nextAvailable.symbol)
+        }
+        startTransition(() => {
+          router.refresh()
+        })
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message || 'Failed to remove stock.' })
+    }
+  }
+
+  // Handle Reset Graph Submission
+  const handleResetGraph = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsResetting(true)
+    setFeedback(null)
+
+    try {
+      const formData = new FormData(e.currentTarget)
+      formData.set('symbol', selectedSymbol)
+
+      const res = (await resetSandboxStockToReal(formData)) as any
+      if (res?.error) {
+        setFeedback({ type: 'error', message: String(res.error) })
+      } else {
+        setFeedback({ type: 'success', message: `Reset graph and price for ${selectedSymbol}.` })
+        startTransition(() => {
+          router.refresh()
+        })
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message || 'Failed to reset graph.' })
+    } finally {
+      setIsResetting(false)
     }
   }
 
@@ -180,11 +324,26 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
     if (!selectedSymbol) return
 
     setIsApplyingMacro(true)
-    await applyMacroCatalyst(selectedSymbol, macroImpact)
-    setIsApplyingMacro(false)
+    setFeedback(null)
+
+    try {
+      const res = (await applyMacroCatalyst(selectedSymbol, macroImpact)) as any
+      if (res?.error) {
+        setFeedback({ type: 'error', message: String(res.error) })
+      } else {
+        setFeedback({ type: 'success', message: `Applied macro catalyst (${macroImpact}%) to ${selectedSymbol}.` })
+        startTransition(() => {
+          router.refresh()
+        })
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message || 'Failed to apply macro catalyst.' })
+    } finally {
+      setIsApplyingMacro(false)
+    }
   }
 
-  // SAFE CHART DATA FIX: Duplicate single-point history so Recharts draws a line!
+  // SAFE CHART DATA FIX: Duplicate single-point history so Recharts renders
   const rawHistory: number[] = selectedStock?.price_history && selectedStock.price_history.length > 0 
     ? selectedStock.price_history 
     : [selectedStock?.current_price || 0]
@@ -205,6 +364,32 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
 
   return (
     <div className="space-y-8">
+      {/* Feedback Banner */}
+      {feedback && (
+        <div
+          className={`p-4 rounded-xl border flex items-center justify-between transition-all ${
+            feedback.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-800 text-emerald-200'
+              : 'bg-red-950/80 border-red-800 text-red-200'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 text-sm font-medium">
+            {feedback.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+            )}
+            <span>{feedback.message}</span>
+          </div>
+          <button
+            onClick={() => setFeedback(null)}
+            className="text-xs opacity-70 hover:opacity-100 font-bold px-2 py-1"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Top Header & Macro Control Bar */}
       <div className="bg-[#121724] border border-slate-800 p-6 rounded-2xl flex flex-col md:flex-row justify-between gap-6 shadow-xl">
         <div className="space-y-4">
@@ -251,11 +436,11 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                 </div>
                 <Button 
                   type="submit" 
-                  disabled={isImporting}
+                  disabled={isImporting || isPending}
                   variant="outline" 
                   className="h-8 text-xs bg-blue-950/40 border-blue-800/60 text-blue-300 hover:bg-blue-900/60 flex items-center gap-1 min-w-[75px]"
                 >
-                  {isImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3" /> Select</>}
+                  {isImporting || isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3" /> Select</>}
                 </Button>
               </form>
 
@@ -275,7 +460,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                           <div className="flex items-center gap-1.5">
                             <span className="font-bold text-white text-xs">{item.symbol}</span>
                             {inSandbox && (
-                              <span className="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-1.5 py-0.2 rounded font-semibold">
+                              <span className="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-1.5 py-0.5 rounded font-semibold">
                                 In Sandbox
                               </span>
                             )}
@@ -290,14 +475,19 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
             </div>
 
             {/* Capital Allocator */}
-            <form action={async (formData) => { await addFunds(formData) }} className="flex gap-2">
+            <form onSubmit={handleAddFundsSubmit} className="flex gap-2">
               <select name="amount" className="bg-[#0b0e14] border border-slate-700 text-slate-300 text-xs rounded-lg px-2.5 py-1.5 outline-none focus:border-emerald-500 transition-colors">
                 <option value="10000">+$10,000</option>
                 <option value="100000">+$100,000</option>
                 <option value="1000000">+$1,000,000</option>
               </select>
-              <Button type="submit" variant="outline" className="h-8 text-xs bg-emerald-950/40 border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/60 flex items-center gap-1">
-                <Plus className="w-3 h-3" /> Inject Liquidity
+              <Button 
+                type="submit" 
+                disabled={isAddingFunds || isPending}
+                variant="outline" 
+                className="h-8 text-xs bg-emerald-950/40 border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/60 flex items-center gap-1"
+              >
+                {isAddingFunds ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3" /> Inject Liquidity</>}
               </Button>
             </form>
           </div>
@@ -329,7 +519,7 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
             </select>
             <Button 
               type="submit" 
-              disabled={isApplyingMacro}
+              disabled={isApplyingMacro || isPending}
               variant="outline" 
               className="text-xs bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 h-auto py-2 font-medium min-w-[70px] flex justify-center items-center"
             >
@@ -345,6 +535,15 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
         {/* Synthetic Chart */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-[#0b0e14] border border-slate-800 rounded-2xl p-5 h-[420px] flex flex-col justify-between shadow-lg relative overflow-hidden">
+            
+            {/* Sync Overlay */}
+            {isPending && (
+              <div className="absolute inset-0 bg-[#0b0e14]/60 backdrop-blur-sm z-20 flex items-center justify-center gap-2 text-xs font-semibold text-blue-400">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                <span>Syncing Market State...</span>
+              </div>
+            )}
+
             <div className="flex justify-between items-start mb-2 z-10">
               <div>
                 <div className="flex items-center gap-2">
@@ -360,15 +559,16 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
               
               <div className="flex items-center gap-2">
                 {/* Reset Form */}
-                <form action={resetSandboxStockToReal}>
+                <form onSubmit={handleResetGraph}>
                   <input type="hidden" name="symbol" value={selectedSymbol} />
                   <Button 
                     type="submit" 
+                    disabled={isResetting || isPending}
                     variant="outline" 
                     size="sm"
                     className="h-8 text-xs bg-slate-800/80 hover:bg-slate-700 border-slate-700 text-slate-300 flex items-center gap-1.5 transition-colors"
                   >
-                    <RotateCcw className="w-3.5 h-3.5 text-blue-400" />
+                    {isResetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 text-blue-400" />}
                     Reset Graph
                   </Button>
                 </form>
@@ -383,6 +583,9 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                       {s.symbol} - ${Number(s.current_price).toFixed(2)}
                     </option>
                   ))}
+                  {!stocks.some((s) => s.symbol.toUpperCase() === selectedSymbol.toUpperCase()) && (
+                    <option value={selectedSymbol}>{selectedSymbol} (Pending Sync...)</option>
+                  )}
                 </select>
               </div>
             </div>
@@ -431,10 +634,13 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
             </div>
           </div>
           
-          <form action={async (formData) => { await executeSandboxTrade(formData) }} className="space-y-4">
+          <form onSubmit={handleTradeSubmit} className="space-y-4">
             <input type="hidden" name="symbol" value={selectedSymbol} />
             <input type="hidden" name="multiplier" value={leverage} />
+            <input type="hidden" name="leverage" value={leverage} />
             <input type="hidden" name="action" value={tradeType} />
+            <input type="hidden" name="type" value={tradeType} />
+            <input type="hidden" name="tradeType" value={tradeType} />
 
             {/* BUY / SELL SEGMENTED TOGGLE */}
             <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#0b0e14] rounded-xl border border-slate-800">
@@ -516,13 +722,20 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
             {/* SINGLE EXECUTION BUTTON AT THE BOTTOM */}
             <Button 
               type="submit" 
-              className={`w-full font-bold py-3 text-sm transition-all shadow-lg ${
+              disabled={isExecutingTrade || isPending}
+              className={`w-full font-bold py-3 text-sm transition-all shadow-lg flex items-center justify-center gap-2 ${
                 tradeType === 'buy'
                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20'
                   : 'bg-red-600 hover:bg-red-500 text-white shadow-red-900/20'
               }`}
             >
-              {tradeType === 'buy' ? `Execute Buy Order (${quantity} Shares)` : `Execute Sell Order (${quantity} Shares)`}
+              {isExecutingTrade ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Executing Order...
+                </>
+              ) : (
+                tradeType === 'buy' ? `Execute Buy Order (${quantity} Shares)` : `Execute Sell Order (${quantity} Shares)`
+              )}
             </Button>
           </form>
         </div>
@@ -537,8 +750,8 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
         
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {stocks.map((stock) => {
-            const isSelected = selectedSymbol === stock.symbol
-            const userHolding = holdings.find((h) => h.symbol === stock.symbol)
+            const isSelected = selectedSymbol.toUpperCase() === stock.symbol.toUpperCase()
+            const userHolding = holdings.find((h) => h.symbol.toUpperCase() === stock.symbol.toUpperCase())
             const ownedShares = userHolding ? Number(userHolding.quantity) : 0
 
             return (
@@ -552,17 +765,14 @@ export function SandboxClient({ stocks = [], holdings = [], cashBalance = 0 }: S
                 }`}
               >
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                  <form action={removeStock}>
-                    <input type="hidden" name="symbol" value={stock.symbol} />
-                    <button 
-                      type="submit" 
-                      className="p-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-md transition-colors"
-                      onClick={(e) => e.stopPropagation()} 
-                      title="Remove Stock"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </form>
+                  <button 
+                    type="button"
+                    onClick={(e) => handleRemoveStock(stock.symbol, e)} 
+                    className="p-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-md transition-colors"
+                    title="Remove Stock"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
                 <div className="flex justify-between items-start mb-2 pr-8">
