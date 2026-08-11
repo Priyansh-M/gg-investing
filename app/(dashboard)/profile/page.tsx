@@ -48,23 +48,41 @@ export default function ProfilePage() {
       setLoading(false)
     }
     loadUserData()
-  }, [])
+  }, [router, supabase])
 
-  // 1. Update Username
+  // 1. Update Username (Now updates Auth AND Profiles table)
   const handleUpdateUsername = async (e: React.FormEvent) => {
     e.preventDefault()
     setSavingUsername(true)
     setMessage(null)
 
-    const { error } = await supabase.auth.updateUser({
+    if (!user) return
+
+    // Step A: Update Supabase Auth metadata
+    const { error: authError } = await supabase.auth.updateUser({
       data: { username, full_name: username },
     })
 
-    if (error) {
-      setMessage({ type: 'error', text: error.message })
-    } else {
-      setMessage({ type: 'success', text: 'Username updated successfully!' })
+    if (authError) {
+      setMessage({ type: 'error', text: authError.message })
+      setSavingUsername(false)
+      return
     }
+
+    // Step B: Update public profiles table for rankings
+    const { error: dbError } = await supabase
+      .from('profiles')
+      .update({ username: username })
+      .eq('id', user.id)
+
+    if (dbError) {
+      setMessage({ type: 'error', text: `Auth updated, but database sync failed: ${dbError.message}` })
+    } else {
+      setMessage({ type: 'success', text: 'Public username updated successfully !' })
+      // Refresh the Next.js router to instantly update the UI/Rankings globally
+      router.refresh()
+    }
+    
     setSavingUsername(false)
   }
 
