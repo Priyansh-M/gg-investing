@@ -2,10 +2,11 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { Sidebar } from '@/components/sidebar'
 import { Toaster } from 'sonner'
+import { Analytics } from '@vercel/analytics/react'
 
 export const metadata: Metadata = {
-  title: 'Investement Simulator',
-  description: 'Paper trading and investment simulation platfor',
+  title: 'Investment Simulator',
+  description: 'Paper trading and investment simulation platform',
 }
 
 export default function RootLayout({
@@ -26,6 +27,9 @@ export default function RootLayout({
 
         {/* Global Toast Popup Container */}
         <Toaster position="top-center" richColors />
+
+        {/* Vercel Web Analytics */}
+        <Analytics />
       </body>
     </html>
   )
