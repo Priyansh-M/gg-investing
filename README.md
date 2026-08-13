@@ -8,13 +8,14 @@ Live Demo: [https://invest-sim-tracker.vercel.app/](https://invest-sim-tracker.v
 
 ## Features
 
+## Features
+
+* **Real-Time Market Data & Asset Imports:** Search and select stocks seamlessly via an interactive live dropdown, track real-time price movements with detailed market metrics, and dynamically import new tickers to expand your viewable markets.
 * **Paper Trading Platform:** Execute simulated market trades, track real-time positions, and monitor total profit and loss performance.
-* **Instant Guest Sandbox:** Full trading functionality available in guest mode without requiring account creation.
 * **Database & Row-Level Security:** Production-ready authentication using Supabase Auth with strict Row-Level Security (RLS) rules protecting user portfolio isolation.
 * **Leaderboards & Profiles:** Public user profiles and performance rankings for trading competitions.
 * **Community Integration:** Embedded Discord community hub powered by WidgetBot.
 * **Telemetry & Analytics:** Anonymous web performance monitoring via Vercel Web Analytics.
-
 ---
 
 ## Tech Stack
