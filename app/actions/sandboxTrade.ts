@@ -48,9 +48,10 @@ export async function executeSandboxTrade(formData: FormData) {
 
   const currentShares = holding ? Number(holding.quantity) : 0
 
-  // Calculate Price Impact using stock liquidity pool
+  // Calculate Price Impact using effective leveraged position size
   const liquidity = stock.liquidity_pool || 10000
-  const impactRatio = quantity / liquidity
+  const effectiveShares = quantity * leverageMultiplier
+  const impactRatio = effectiveShares / liquidity
   let newPrice = stock.current_price
 
   if (action === 'buy') {
@@ -83,7 +84,7 @@ export async function executeSandboxTrade(formData: FormData) {
         })
     }
 
-    // Increase price due to buying pressure
+    // Increase price due to buying pressure (factoring leverage)
     newPrice = stock.current_price * (1 + impactRatio)
 
   } else if (action === 'sell') {
@@ -109,7 +110,7 @@ export async function executeSandboxTrade(formData: FormData) {
         .eq('id', holding.id)
     }
 
-    // Decrease price due to selling pressure
+    // Decrease price due to selling pressure (factoring leverage)
     newPrice = stock.current_price * (1 - impactRatio)
   }
 
@@ -127,6 +128,21 @@ export async function executeSandboxTrade(formData: FormData) {
     })
     .eq('symbol', symbol)
 
+  // Log transaction to transactions table so it appears in Logs Page
+  const { error: txError } = await supabase
+    .from('transactions')
+    .insert({
+      user_id: user.id,
+      symbol: symbol,
+      type: action.toUpperCase(), // Saves as 'BUY' or 'SELL'
+      quantity: quantity,
+      price: stock.current_price
+    })
+
+  if (txError) {
+    console.error("Failed to log sandbox transaction:", txError)
+  }
+
   // Log to relational history table as well
   try {
     await supabase
@@ -141,6 +157,7 @@ export async function executeSandboxTrade(formData: FormData) {
 
   revalidatePath('/sandbox')
   revalidatePath('/dashboard')
+  revalidatePath('/logs')
 
   return { success: true, updatedPrice: finalPrice }
 }
@@ -193,6 +210,7 @@ export async function applyMacroCatalyst(symbol: string, percentageChange: numbe
 
   revalidatePath('/sandbox')
   revalidatePath('/dashboard')
+  revalidatePath('/logs')
 
   return { success: true, updatedPrice: newPrice }
 }

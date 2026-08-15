@@ -65,7 +65,7 @@ export function TransactionHistory({ transactions = [] }: TransactionHistoryProp
                       {tx.type}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500" suppressHydrationWarning>
                     {new Date(tx.created_at).toLocaleString([], {
                       dateStyle: 'short',
                       timeStyle: 'short'

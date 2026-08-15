@@ -90,12 +90,14 @@ export async function buyStock(formData: FormData) {
     console.error("Failed to log buy transaction:", txError)
   }
 
-  // 🌟 Trigger simulated price impact & insert point into stock_price_history
+  // Trigger simulated price impact & insert point into stock_price_history
   await applyTradeImpact(stock.id, 'BUY', quantity)
 
+  // Revalidate routes so UI updates immediately
   revalidatePath('/')
   revalidatePath('/markets')
   revalidatePath('/dashboard')
+  revalidatePath('/logs')
 }
 
 // 2. SELL STOCK ACTION
@@ -177,10 +179,12 @@ export async function sellStock(formData: FormData) {
     console.error("Failed to log sell transaction:", txError)
   }
 
-  // 🌟 Trigger simulated price impact & insert point into stock_price_history
+  // Trigger simulated price impact & insert point into stock_price_history
   await applyTradeImpact(stock.id, 'SELL', quantity)
 
+  // Revalidate routes so UI updates immediately
   revalidatePath('/')
   revalidatePath('/markets')
   revalidatePath('/dashboard')
+  revalidatePath('/logs')
 }

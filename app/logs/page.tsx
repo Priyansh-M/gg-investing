@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-export const dynamic = 'force-dynamic'
 import { ArrowDownLeft, ArrowUpRight, Clock, FileText, TrendingUp, DollarSign } from 'lucide-react'
+
+export const dynamic = 'force-dynamic'
 
 export default async function LogsPage() {
   const supabase = await createClient()
@@ -9,22 +10,27 @@ export default async function LogsPage() {
 
   if (!user) redirect('/login')
 
-  // Fetch all transactions for logged in user
-  const { data: transactions } = await supabase
+  // Fetch all transactions from Supabase for logged-in user
+  const { data: transactions, error } = await supabase
     .from('transactions')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
+  if (error) {
+    console.error('Error fetching transactions from Supabase:', error)
+  }
+
   const allLogs = transactions || []
 
+  // Calculations with safe numerical parsing to avoid NaN errors
   const totalTrades = allLogs.length
   const totalBuyVolume = allLogs
     .filter((tx) => tx.type === 'BUY')
-    .reduce((acc, tx) => acc + Number(tx.quantity) * Number(tx.price), 0)
+    .reduce((acc, tx) => acc + (Number(tx.quantity || 0) * Number(tx.price || 0)), 0)
   const totalSellVolume = allLogs
     .filter((tx) => tx.type === 'SELL')
-    .reduce((acc, tx) => acc + Number(tx.quantity) * Number(tx.price), 0)
+    .reduce((acc, tx) => acc + (Number(tx.quantity || 0) * Number(tx.price || 0)), 0)
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto space-y-8">
@@ -98,15 +104,17 @@ export default async function LogsPage() {
               <tbody className="divide-y divide-slate-800/60 text-sm">
                 {allLogs.map((tx) => {
                   const isBuy = tx.type === 'BUY'
-                  const totalCost = Number(tx.quantity) * Number(tx.price)
+                  const quantity = Number(tx.quantity || 0)
+                  const price = Number(tx.price || 0)
+                  const totalCost = quantity * price
 
                   return (
                     <tr key={tx.id} className="hover:bg-[#161c2c] transition-colors">
                       <td className="py-4 px-6 text-slate-400 text-xs">
-                        {new Date(tx.created_at).toLocaleString([], {
+                        {tx.created_at ? new Date(tx.created_at).toLocaleString([], {
                           dateStyle: 'medium',
                           timeStyle: 'medium'
-                        })}
+                        }) : 'N/A'}
                       </td>
 
                       <td className="py-4 px-6">
@@ -123,8 +131,8 @@ export default async function LogsPage() {
                       </td>
 
                       <td className="py-4 px-6 font-bold text-white">{tx.symbol}</td>
-                      <td className="py-4 px-6 text-slate-300">{tx.quantity} {tx.quantity === 1 ? 'share' : 'shares'}</td>
-                      <td className="py-4 px-6 text-slate-300">${Number(tx.price).toFixed(2)}</td>
+                      <td className="py-4 px-6 text-slate-300">{quantity} {quantity === 1 ? 'share' : 'shares'}</td>
+                      <td className="py-4 px-6 text-slate-300">${price.toFixed(2)}</td>
                       <td className="py-4 px-6 text-right font-semibold text-white">
                         ${totalCost.toFixed(2)}
                       </td>
