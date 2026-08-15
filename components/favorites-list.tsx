@@ -84,6 +84,9 @@ export function FavoritesList({ userId }: FavoritesListProps) {
     if (!isLoaded || !userId) return 
 
     localStorage.setItem(storageKey, JSON.stringify(favorites))
+    
+    // -> ADDED: Notify ticker whenever favorites are saved/loaded on mount
+    window.dispatchEvent(new Event('favoritesUpdated'))
 
     const fetchRealData = async () => {
       if (favorites.length === 0) {
