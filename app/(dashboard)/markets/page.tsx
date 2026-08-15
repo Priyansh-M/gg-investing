@@ -3,6 +3,9 @@ import { redirect } from 'next/navigation'
 import { MarketsClient } from '@/components/markets-client'
 import { QuantRiskPanel } from '@/components/quant-risk-panel'
 
+// Force dynamic server rendering on every request
+export const dynamic = 'force-dynamic'
+
 export default async function MarketsPage() {
   const supabase = await createClient()
 
@@ -22,7 +25,7 @@ export default async function MarketsPage() {
     .select('*')
     .order('symbol')
 
-  // 3. Fetch User Holdings with all columns
+  // 3. Fetch User Holdings
   const { data: holdings } = await supabase
     .from('holdings')
     .select('*')
@@ -30,10 +33,10 @@ export default async function MarketsPage() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
-      {/* 4. Quant Risk Panel at the top */}
+      {/* Quant Risk Panel */}
       <QuantRiskPanel holdings={holdings || []} />
 
-      {/* 5. Trading client below */}
+      {/* Trading client */}
       <MarketsClient
         userId={user.id}
         stocks={stocks || []}

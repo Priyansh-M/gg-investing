@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { removeStock } from '@/app/actions/stockManagement' // Update import path if needed
 
 interface StockCardProps {
   symbol: string
@@ -8,6 +10,7 @@ interface StockCardProps {
   fallbackPrice?: number
   fallbackReturn?: number
   marketCap?: string
+  onRemove?: (symbol: string) => void
 }
 
 interface FinnhubQuote {
@@ -20,11 +23,14 @@ export function StockCard({
   name,
   fallbackPrice = 150.00,
   fallbackReturn = 0.00,
-  marketCap = 'N/A'
+  marketCap = 'N/A',
+  onRemove
 }: StockCardProps) {
+  const router = useRouter()
   const [price, setPrice] = useState<number | null>(null)
   const [percentChange, setPercentChange] = useState<number | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
+  const [isRemoving, startTransition] = useTransition()
 
   useEffect(() => {
     let isMounted = true
@@ -48,12 +54,10 @@ export function StockCard({
         const data: FinnhubQuote = await response.json()
 
         if (isMounted) {
-          // Finnhub returns c = 0 if symbol doesn't exist or has no active trades
           if (data && typeof data.c === 'number' && data.c > 0) {
             setPrice(data.c)
             setPercentChange(data.dp ?? 0)
           } else {
-            // Fallback if data is empty/zero
             setPrice(fallbackPrice)
             setPercentChange(fallbackReturn)
           }
@@ -78,17 +82,41 @@ export function StockCard({
     }
   }, [symbol, fallbackPrice, fallbackReturn])
 
+  // Handle stock removal and refresh UI
+  const handleRemove = () => {
+    startTransition(async () => {
+      const res = await removeStock(symbol)
+      if (res?.success) {
+        if (onRemove) onRemove(symbol)
+        router.refresh() // Purges Next.js cache to remove card immediately
+      } else {
+        alert(`Failed to remove stock: ${res?.error || 'Unknown error'}`)
+      }
+    })
+  }
+
   const isPositive = (percentChange ?? 0) >= 0
 
   return (
-    <div className="bg-[#121724] border border-slate-800 p-5 rounded-xl flex flex-col justify-between hover:border-slate-700 transition-colors">
+    <div className="bg-[#121724] border border-slate-800 p-5 rounded-xl flex flex-col justify-between hover:border-slate-700 transition-colors relative group">
       <div>
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center justify-between mb-1">
           <span className="text-[10px] font-bold tracking-wider text-emerald-400 uppercase bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
             Equity | Market
           </span>
+          
+          {/* Remove Stock Button */}
+          <button
+            onClick={handleRemove}
+            disabled={isRemoving}
+            className="text-xs text-slate-400 hover:text-red-400 transition-colors disabled:opacity-50 px-2 py-0.5 rounded hover:bg-red-950/40 border border-transparent hover:border-red-800/40"
+            title="Remove from portfolio"
+          >
+            {isRemoving ? 'Deleting...' : 'Remove'}
+          </button>
         </div>
-        <h3 className="text-lg font-bold text-white mb-4">
+
+        <h3 className="text-lg font-bold text-white mb-4 pr-12">
           {name} ({symbol})
         </h3>
       </div>

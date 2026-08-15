@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { TradingViewChart } from '@/components/trading-view-chart'
 import { Button } from '@/components/ui/button'
 import { syncLiveMarketPrices, getLiveWatchlistQuotes } from '@/app/actions/marketSync'
@@ -53,18 +54,28 @@ interface Props {
 }
 
 export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance }: Props) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
   const [selectedSymbol, setSelectedSymbol] = useState<string>(stocks[0]?.symbol || 'AAPL')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   
   // State to hold live Finnhub data
   const [liveData, setLiveData] = useState<Record<string, any>>({})
 
-  const formRef = useRef<HTMLFormElement>(null)
   const searchContainerRef = useRef<HTMLDivElement>(null)
-  const selectedStock = stocks.find((s) => s.symbol === selectedSymbol)
+  const selectedStock = stocks.find((s) => s.symbol.toUpperCase() === selectedSymbol.toUpperCase())
+
+  // Ensure selectedSymbol syncs if stocks array updates
+  useEffect(() => {
+    if (stocks.length > 0 && !stocks.some(s => s.symbol.toUpperCase() === selectedSymbol.toUpperCase())) {
+      setSelectedSymbol(stocks[0].symbol)
+    }
+  }, [stocks])
 
   // Fetch Live Data from Finnhub on mount
   useEffect(() => {
@@ -75,9 +86,11 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
       try {
         const data = await getLiveWatchlistQuotes(symbols)
         const mappedData: Record<string, any> = {}
-        data.forEach(item => {
-          mappedData[item.symbol] = item
-        })
+        if (Array.isArray(data)) {
+          data.forEach(item => {
+            mappedData[item.symbol] = item
+          })
+        }
         setLiveData(mappedData)
       } catch (err) {
         console.error("Failed to fetch live data for markets page:", err)
@@ -129,19 +142,54 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Auto-submits the search form cleanly without state race conditions
-  const handleSelectSearchResult = (symbol: string) => {
+  // Programmatic Add Stock Execution
+  const handleAddStock = async (tickerToAdd: string) => {
+    if (!tickerToAdd || isSubmitting) return
+
+    setIsSubmitting(true)
     setShowDropdown(false)
 
-    if (formRef.current) {
-      const input = formRef.current.querySelector('input[name="symbol"]') as HTMLInputElement
-      if (input) {
-        input.value = symbol
+    try {
+      const res = await addStock(tickerToAdd)
+      if (res?.success) {
+        setSearchQuery('')
+        if (res.symbol) setSelectedSymbol(res.symbol)
+        startTransition(() => {
+          router.refresh()
+        })
+      } else {
+        alert(res?.error || 'Failed to add stock.')
       }
-      formRef.current.requestSubmit()
+    } catch (err: any) {
+      alert(err?.message || 'Error adding stock.')
+    } finally {
+      setIsSubmitting(false)
     }
+  }
 
-    setSearchQuery('')
+  // Programmatic Remove Stock Execution
+  const handleRemoveStock = async (symbolToRemove: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+
+    if (!confirm(`Are you sure you want to remove ${symbolToRemove} from your market list?`)) return
+
+    try {
+      const res = await removeStock(symbolToRemove)
+      if (res?.success) {
+        if (selectedSymbol.toUpperCase() === symbolToRemove.toUpperCase()) {
+          const remaining = stocks.filter(s => s.symbol.toUpperCase() !== symbolToRemove.toUpperCase())
+          if (remaining.length > 0) setSelectedSymbol(remaining[0].symbol)
+        }
+        startTransition(() => {
+          router.refresh()
+        })
+      } else {
+        alert(res?.error || 'Failed to remove stock.')
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Error removing stock.')
+    }
   }
 
   // Format Market Cap
@@ -155,7 +203,6 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
     return `$${num.toLocaleString()}`
   }
 
-  // Use live data if available, otherwise fallback to database data
   const liveSelected = liveData[selectedSymbol]
   const currentPrice = liveSelected?.current_price || selectedStock?.current_price || 0
   const activeMarketCap = liveSelected?.market_cap || selectedStock?.market_cap
@@ -180,9 +227,15 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
         </div>
 
         <div className="flex gap-3 w-full md:w-auto">
-          {/* Add Stock Search Bar with Auto-Complete */}
+          {/* Add Stock Search Bar */}
           <div ref={searchContainerRef} className="relative flex-1 md:w-72">
-            <form ref={formRef} action={addStock} className="flex gap-2 relative">
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault()
+                handleAddStock(searchQuery)
+              }} 
+              className="flex gap-2 relative"
+            >
               <div className="relative flex-1">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                 <input 
@@ -200,8 +253,12 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
                   <Loader2 className="w-3.5 h-3.5 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin" />
                 )}
               </div>
-              <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-3" onClick={() => setTimeout(() => setSearchQuery(''), 500)}>
-                <Plus className="w-4 h-4" />
+              <Button 
+                type="submit" 
+                disabled={isSubmitting || isPending}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-3 min-w-[44px]"
+              >
+                {isSubmitting || isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
               </Button>
             </form>
 
@@ -212,7 +269,7 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
                   <button
                     key={`${item.symbol}-${index}`}
                     type="button"
-                    onClick={() => handleSelectSearchResult(item.symbol)}
+                    onClick={() => handleAddStock(item.symbol)}
                     className="w-full text-left px-4 py-2.5 hover:bg-slate-800/80 border-b border-slate-800/50 last:border-0 flex justify-between items-center transition-colors"
                   >
                     <div>
@@ -239,7 +296,7 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
         </div>
       </div>
 
-      {/* Main Content Area: Chart (Left 2 Cols) + Detailed Fundamental Statistics (Right 1 Col) */}
+      {/* Main Content Area: Chart + Statistics */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Live Chart Section */}
@@ -254,7 +311,7 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
           <TradingViewChart symbol={selectedSymbol} />
         </div>
 
-        {/* Fundamental Statistics & Overview Panel */}
+        {/* Fundamental Statistics Panel */}
         <div className="bg-[#121724] border border-slate-800 rounded-2xl p-6 h-fit space-y-6">
           <div className="border-b border-slate-800 pb-4">
             <div className="flex justify-between items-center mb-1">
@@ -364,11 +421,10 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
         
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {stocks.map((stock) => {
-            const isSelected = selectedSymbol === stock.symbol
-            const userHolding = holdings.find((h) => h.symbol === stock.symbol)
+            const isSelected = selectedSymbol.toUpperCase() === stock.symbol.toUpperCase()
+            const userHolding = holdings.find((h) => h.symbol.toUpperCase() === stock.symbol.toUpperCase())
             const ownedShares = userHolding ? Number(userHolding.quantity) : 0
             
-            // Get live price if available, otherwise use DB price
             const displayPrice = liveData[stock.symbol]?.current_price || stock.current_price
 
             return (
@@ -385,17 +441,14 @@ export function MarketsClient({ userId, stocks = [], holdings = [], cashBalance 
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-1 items-center">
                   <FavoriteToggle symbol={stock.symbol} userId={userId} />
 
-                  <form action={removeStock}>
-                    <input type="hidden" name="symbol" value={stock.symbol} />
-                    <button 
-                      type="submit" 
-                      className="p-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-md transition-colors"
-                      onClick={(e) => e.stopPropagation()} 
-                      title="Remove Stock"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </form>
+                  <button 
+                    type="button" 
+                    onClick={(e) => handleRemoveStock(stock.symbol, e)}
+                    className="p-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-md transition-colors"
+                    title="Remove Stock"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
                 <div className="flex justify-between items-start mb-2 pr-12">

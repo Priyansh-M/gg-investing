@@ -3,69 +3,92 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-export async function addStock(formData: FormData) {
-  const symbol = formData.get('symbol')?.toString().toUpperCase().trim()
-  if (!symbol) return
+export async function addStock(input: FormData | string | { symbol: string }) {
+  let symbol: string | undefined
 
-  const apiKey = process.env.FINNHUB_API_KEY
+  if (typeof input === 'string') {
+    symbol = input
+  } else if (input instanceof FormData) {
+    symbol = input.get('symbol')?.toString()
+  } else if (input && typeof input === 'object' && 'symbol' in input) {
+    symbol = input.symbol
+  }
+
+  if (!symbol) return { success: false, error: 'No ticker symbol provided.' }
+  symbol = symbol.toUpperCase().trim()
+
+  const apiKey = process.env.FINNHUB_API_KEY || process.env.NEXT_PUBLIC_FINNHUB_API_KEY
   if (!apiKey) {
-    console.error('Missing Finnhub API Key')
-    return
+    return { success: false, error: 'Missing Finnhub API Key in environment variables.' }
   }
 
   try {
-    // 1. Fetch Company Profile (Name, Sector) from Finnhub
-    const profileRes = await fetch(
-      `https://finnhub.io/api/v1/stock/profile2?symbol=${symbol}&token=${apiKey}`
-    )
-    const profileData = await profileRes.json()
+    const [profileRes, quoteRes] = await Promise.all([
+      fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${symbol}&token=${apiKey}`),
+      fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${apiKey}`)
+    ])
 
-    // 2. Fetch Live Quote (Price) from Finnhub
-    const quoteRes = await fetch(
-      `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${apiKey}`
-    )
+    const profileData = await profileRes.json()
     const quoteData = await quoteRes.json()
 
-    // If 'c' (current price) is 0, the stock doesn't exist or isn't trading
-    if (!quoteData.c || quoteData.c === 0) {
-      console.error('Invalid stock ticker')
-      return
+    if (!quoteData || typeof quoteData.c !== 'number' || quoteData.c === 0) {
+      return { success: false, error: `Invalid stock ticker '${symbol}' or quote unavailable.` }
     }
-
-    const companyName = profileData.name || symbol
-    const sector = profileData.finnhubIndustry || 'General'
 
     const supabase = await createClient()
 
-    // 3. Insert into Supabase (Ignore if it already exists)
-    await supabase.from('stocks').upsert({
+    // Safe payload matching your original working schema columns only
+    const stockPayload = {
       symbol: symbol,
-      company_name: companyName,
+      company_name: profileData.name || symbol,
       current_price: Number(quoteData.c.toFixed(2)),
-      sector: sector
-    })
+    }
 
-    // Revalidate the entire layout so all tabs (Markets, Sandbox, Watchlist) see the new stock
+    const { error } = await supabase.from('stocks').upsert(stockPayload, { onConflict: 'symbol' })
+
+    if (error) {
+      console.error('Supabase Add Stock Error:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath('/markets')
+    revalidatePath('/sandbox')
     revalidatePath('/', 'layout')
-  } catch (error) {
-    console.error('Error adding stock:', error)
+
+    return { success: true, symbol }
+  } catch (err: any) {
+    console.error('addStock Action Error:', err)
+    return { success: false, error: err?.message || 'Failed to add stock.' }
   }
 }
 
-export async function removeStock(formData: FormData) {
-  const symbol = formData.get('symbol')?.toString()
-  if (!symbol) return
+export async function removeStock(input: FormData | string | { symbol: string }) {
+  let symbol: string | undefined
+
+  if (typeof input === 'string') {
+    symbol = input
+  } else if (input instanceof FormData) {
+    symbol = input.get('symbol')?.toString()
+  } else if (input && typeof input === 'object' && 'symbol' in input) {
+    symbol = input.symbol
+  }
+
+  if (!symbol) return { success: false, error: 'No ticker symbol provided.' }
+  symbol = symbol.toUpperCase().trim()
 
   const supabase = await createClient()
-  
-  // 1. Delete from Real Markets table ('stocks')
-  // Note: Due to your CASCADE setup, this will also safely delete the holdings associated with this stock.
-  await supabase.from('stocks').delete().eq('symbol', symbol)
-  
-  // 2. Delete from Sandbox table ('simulated_stocks')
-  // This ensures that if you hit "Delete" on the Sandbox page, it actually removes it there too!
-  await supabase.from('simulated_stocks').delete().eq('symbol', symbol)
-  
-  // 3. Purge cache for the whole app to update the UI instantly
+
+  const [res1, res2] = await Promise.all([
+    supabase.from('stocks').delete({ count: 'exact' }).eq('symbol', symbol),
+    supabase.from('simulated_stocks').delete({ count: 'exact' }).eq('symbol', symbol)
+  ])
+
+  if (res1.error) console.error('Supabase stocks DELETE Error:', res1.error.message)
+  if (res2.error) console.error('Supabase simulated_stocks DELETE Error:', res2.error.message)
+
+  revalidatePath('/markets')
+  revalidatePath('/sandbox')
   revalidatePath('/', 'layout')
+
+  return { success: true }
 }
