@@ -23,10 +23,7 @@ export default function RootLayout({
         
         {/* The main content area for your pages */}
         <main className="flex-1 overflow-y-auto bg-[#05070a]">
-          
-          {/* Stock Ticker displayed at the top of the content area */}
           <StockTicker />
-          
           {children}
         </main>
 

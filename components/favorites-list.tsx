@@ -31,29 +31,30 @@ export function FavoritesList({ userId }: FavoritesListProps) {
 
   const storageKey = `favorites_${userId}`
 
-  // 1. Initial Load
+  // 1. Initial Load from LocalStorage
   useEffect(() => {
     if (!userId) return
 
+    let activeFavs = ['NVDA', 'AAPL', 'MSFT']
     const saved = localStorage.getItem(storageKey)
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setFavorites(parsed)
-        } else {
-          setFavorites(['NVDA', 'AAPL', 'MSFT'])
+          activeFavs = parsed
         }
       } catch (e) {
-        setFavorites(['NVDA', 'AAPL', 'MSFT'])
+        console.error("Failed to parse local favorites", e)
       }
-    } else {
-      setFavorites(['NVDA', 'AAPL', 'MSFT'])
     }
+    
+    setFavorites(activeFavs)
     setIsLoaded(true)
+    // Broadcast immediately on load to sync StockTicker
+    window.dispatchEvent(new Event('favoritesUpdated'))
   }, [userId, storageKey])
 
-  // 2. Sync listener
+  // 2. Cross-tab & Event Sync listener
   useEffect(() => {
     const syncFavorites = () => {
       if (!userId) return
@@ -79,14 +80,11 @@ export function FavoritesList({ userId }: FavoritesListProps) {
     }
   }, [userId, storageKey])
 
-  // 3. Fetch from Finnhub
+  // 3. Immediate Data Fetching (Zero artificial delay)
   useEffect(() => {
     if (!isLoaded || !userId) return 
 
     localStorage.setItem(storageKey, JSON.stringify(favorites))
-    
-    // -> ADDED: Notify ticker whenever favorites are saved/loaded on mount
-    window.dispatchEvent(new Event('favoritesUpdated'))
 
     const fetchRealData = async () => {
       if (favorites.length === 0) {
@@ -102,7 +100,7 @@ export function FavoritesList({ userId }: FavoritesListProps) {
         console.error("Error fetching live stock data:", error)
         setStockData([])
       } finally {
-        setTimeout(() => setIsRefreshing(false), 300)
+        setIsRefreshing(false)
       }
     }
 
@@ -194,7 +192,6 @@ export function FavoritesList({ userId }: FavoritesListProps) {
             change_percent: 0
           }
 
-          // Variables cleanly mapped from Finnhub
           const marketCapValue = stock.market_cap || 0
           const currentPrice = stock.current_price || 0
           const change = stock.change_percent || 0 

@@ -1,128 +1,145 @@
-"use client"
+'use client'
 
-import { useState, useEffect, memo, FC } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Marquee from 'react-fast-marquee'
 import { getLiveWatchlistQuotes } from '@/app/actions/marketSync'
+import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
-const DEFAULT_TICKERS = ['NVDA', 'AAPL', 'MSFT', 'TSLA', 'AMZN']
+export function StockTicker() {
+  const [stockData, setStockData] = useState<any[]>([])
+  const [isLoaded, setIsLoaded] = useState(false)
 
-interface StockTickerProps {
-  userId?: string
-}
-
-const StockTickerComponent: FC<StockTickerProps> = ({ userId }) => {
-  const [stocks, setStocks] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-
-  // Fetch live market quotes for saved tickers
-  const fetchTickerData = async () => {
-    let savedTickers: string[] = DEFAULT_TICKERS
-
-    if (typeof window !== 'undefined') {
-      let saved: string | null = null
-
-      // 1. Check specific key if userId is passed
-      if (userId) {
-        saved = localStorage.getItem(`favorites_${userId}`)
-      }
-
-      // 2. If no userId or specific key found, search for any user's favorites key
-      if (!saved) {
-        const matchingKey = Object.keys(localStorage).find((key) =>
-          key.startsWith('favorites_')
-        )
-        if (matchingKey) {
-          saved = localStorage.getItem(matchingKey)
-        }
-      }
-
-      // 3. Parse saved favorites if they exist and aren't empty
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved)
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            savedTickers = parsed
-          }
-        } catch (e) {
-          console.error("Failed to parse ticker favorites:", e)
-        }
-      }
-    }
+  const fetchTickerData = useCallback(async () => {
+    // Check for window to ensure client-side execution
+    if (typeof window === 'undefined') return
 
     try {
-      const data = await getLiveWatchlistQuotes(savedTickers)
-      if (Array.isArray(data) && data.length > 0) {
-        setStocks(data)
+      // 1. Get user favorites from localStorage
+      let symbols = ['NVDA', 'AAPL', 'MSFT']
+      const favKey = Object.keys(localStorage).find(key => key.startsWith('favorites_'))
+      
+      if (favKey) {
+        const saved = localStorage.getItem(favKey)
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved)
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              symbols = parsed
+            }
+          } catch (e) {
+            console.error("Error parsing stored favorites for ticker", e)
+          }
+        }
       }
-    } catch (err) {
-      console.error("Error fetching live ticker quotes:", err)
-    } finally {
-      setLoading(false)
+
+      // 2. Cache Configuration
+      const CACHE_KEY = 'ticker_price_cache'
+      const TIME_KEY = 'ticker_last_fetched'
+      const SYMBOLS_KEY = 'ticker_cached_symbols'
+      const ONE_HOUR = 60 * 60 * 1000 // 1 hour in ms
+
+      const cachedPrices = localStorage.getItem(CACHE_KEY)
+      const lastFetched = localStorage.getItem(TIME_KEY)
+      const cachedSymbols = localStorage.getItem(SYMBOLS_KEY)
+
+      // 3. Cache Validation Check
+      const symbolsUnchanged = cachedSymbols === JSON.stringify(symbols)
+      const isCacheValid = lastFetched && (Date.now() - Number(lastFetched) < ONE_HOUR)
+
+      if (cachedPrices && isCacheValid && symbolsUnchanged) {
+        setStockData(JSON.parse(cachedPrices))
+        setIsLoaded(true)
+        return
+      }
+
+      // 4. Fetch Fresh Quotes Only When Cache Is Invalid
+      const data = await getLiveWatchlistQuotes(symbols)
+      const safeData = Array.isArray(data) ? data : []
+      
+      setStockData(safeData)
+      
+      // 5. Update Cache
+      if (safeData.length > 0) {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(safeData))
+        localStorage.setItem(TIME_KEY, Date.now().toString())
+        localStorage.setItem(SYMBOLS_KEY, JSON.stringify(symbols))
+      }
+      
+      setIsLoaded(true)
+    } catch (error) {
+      console.error("Ticker fetch error:", error)
+      setIsLoaded(true)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    fetchTickerData()
+    let isMounted = true
 
-    const handleSync = () => fetchTickerData()
+    const runFetch = async () => {
+      if (isMounted) {
+        await fetchTickerData()
+      }
+    }
+
+    runFetch()
+    
+    const handleSync = () => {
+      if (isMounted) fetchTickerData()
+    }
 
     window.addEventListener('favoritesUpdated', handleSync)
-    window.addEventListener('storage', handleSync)
-
+    
     return () => {
+      isMounted = false
       window.removeEventListener('favoritesUpdated', handleSync)
-      window.removeEventListener('storage', handleSync)
     }
-  }, [userId])
+  }, [fetchTickerData])
 
-  if (loading && stocks.length === 0) {
+  if (!isLoaded) {
     return (
-      <div className="w-full bg-[#0b0e14] border-b border-slate-800/80 py-2 text-center text-xs text-slate-500">
-        Loading live market ticker...
+      <div className="h-12 bg-[#0b0e14] border-b border-slate-800/60 w-full flex items-center justify-center text-xs text-slate-500">
+        Loading market ticker...
       </div>
     )
   }
 
-  if (stocks.length === 0) return null
+  if (stockData.length === 0) return null
 
   return (
-    <div className="w-full bg-[#0b0e14] border-b border-slate-800/80 py-2 overflow-hidden select-none">
-      <Marquee direction="left" speed={35} gradient={false}>
-        {stocks.map((stock, index) => {
-          const symbol = stock.symbol || 'N/A'
-          const price = stock.current_price || 0
-          const change = stock.change_percent || 0
-          const isUp = change > 0
-          const isDown = change < 0
+    <div className="bg-[#0b0e14] border-b border-slate-800/60 w-full overflow-hidden flex items-center h-12">
+      <Marquee 
+        gradient={false} 
+        speed={35} 
+        pauseOnHover={true} 
+        autoFill={false}
+        play={true}
+        className="overflow-hidden"
+      >
+        <div className="flex items-center gap-10 pr-10">
+          {stockData.map((stock, index) => {
+            const currentPrice = stock?.current_price || 0
+            const change = stock?.change_percent || 0
+            const isPositive = change > 0
+            const isNeutral = change === 0
 
-          const changeColor = isUp
-            ? "text-emerald-400"
-            : isDown
-              ? "text-red-400"
-              : "text-slate-400"
-
-          return (
-            <span
-              key={`${symbol}-${index}`}
-              className="inline-flex items-center gap-2 mx-6 text-xs font-semibold tabular-nums"
-            >
-              <span className="text-slate-400 font-bold">
-                ${symbol.toUpperCase()}
-              </span>
-              <span className="text-slate-200">
-                ${Number(price).toFixed(2)}
-              </span>
-              <span className={`inline-flex items-center gap-0.5 ${changeColor}`}>
-                {isUp ? "▲" : isDown ? "▼" : "—"}
-                {isUp ? "+" : ""}
-                {Number(change).toFixed(2)}%
-              </span>
-            </span>
-          )
-        })}
+            return (
+              <div key={`${stock.symbol}-${index}`} className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <span className="text-white font-bold">{stock.symbol}</span>
+                <span className="text-slate-300">${Number(currentPrice).toFixed(2)}</span>
+                
+                <span className={`flex items-center text-xs font-bold ${
+                  isPositive ? 'text-emerald-400' : isNeutral ? 'text-slate-400' : 'text-red-400'
+                }`}>
+                  {isPositive && <TrendingUp size={14} className="mr-1" />}
+                  {!isPositive && !isNeutral && <TrendingDown size={14} className="mr-1" />}
+                  {isNeutral && <Minus size={14} className="mr-1" />}
+                  {isPositive ? '+' : ''}{change.toFixed(2)}%
+                </span>
+              </div>
+            )
+          })}
+        </div>
       </Marquee>
     </div>
   )
 }
-
-export const StockTicker = memo(StockTickerComponent)
