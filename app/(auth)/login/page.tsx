@@ -1,113 +1,63 @@
-'use client'
+'use server'
 
-import { useState } from 'react'
-import { toast } from 'sonner'
-import { login, signup } from '@/app/actions/auth'
-import { Button } from '@/components/ui/button'
+import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 
-export default function AuthPage() {
-  const [isSignUp, setIsSignUp] = useState(false)
-  const [loading, setLoading] = useState(false)
+export async function login(formData: FormData) {
+  const supabase = await createClient()
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setLoading(true)
+  const email = formData.get('email')?.toString()
+  const password = formData.get('password')?.toString()
 
-    const formData = new FormData(e.currentTarget)
-    
-    // Call server action depending on mode
-    const result = isSignUp ? await signup(formData) : await login(formData)
-
-    // Trigger toast notification if an error returns
-    if (result?.error) {
-      toast.error(isSignUp ? 'Sign Up Failed' : 'Login Failed', {
-        description: result.error,
-      })
-      setLoading(false)
-    }
+  if (!email || !password) {
+    return { error: 'Email and password are required.' }
   }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0b0e14] text-slate-100 p-4 w-full">
-      <div className="w-full max-w-md bg-[#0f141c] border border-slate-800 rounded-2xl p-8 shadow-xl">
-        
-        {/* Header Branding */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-white">
-            Investment <span className="text-[#F97316]">Simulator</span>
-          </h1>
-          <p className="text-sm text-slate-400 mt-2">
-            {isSignUp ? 'Create your paper trading account' : 'Welcome back, trader'}
-          </p>
-        </div>
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
 
-        {/* Auth Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          
-          {/* Conditionally render Username only during Sign Up */}
-          {isSignUp && (
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                Username
-              </label>
-              <input
-                name="username"
-                type="text"
-                required={isSignUp}
-                placeholder="CoolTrader99"
-                className="w-full px-4 py-2.5 rounded-lg bg-[#05070a] border border-slate-800 text-sm text-white placeholder-slate-500 outline-none focus:border-[#F97316] transition-colors"
-              />
-            </div>
-          )}
+  if (error) {
+    return { error: error.message }
+  }
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-              Email Address
-            </label>
-            <input
-              name="email"
-              type="email"
-              required
-              placeholder="you@example.com"
-              className="w-full px-4 py-2.5 rounded-lg bg-[#05070a] border border-slate-800 text-sm text-white placeholder-slate-500 outline-none focus:border-[#F97316] transition-colors"
-            />
-          </div>
+  revalidatePath('/', 'layout')
+  redirect('/markets')
+}
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-              Password
-            </label>
-            <input
-              name="password"
-              type="password"
-              required
-              placeholder="••••••••"
-              className="w-full px-4 py-2.5 rounded-lg bg-[#05070a] border border-slate-800 text-sm text-white placeholder-slate-500 outline-none focus:border-[#F97316] transition-colors"
-            />
-          </div>
+export async function signup(formData: FormData) {
+  const supabase = await createClient()
 
-          <Button 
-            type="submit" 
-            disabled={loading}
-            className="w-full py-2.5 bg-[#F97316] hover:bg-[#EA580C] text-white font-medium rounded-lg transition-colors cursor-pointer"
-          >
-            {loading ? 'Processing...' : isSignUp ? 'Create Account' : 'Sign In'}
-          </Button>
-        </form>
+  const email = formData.get('email')?.toString()
+  const password = formData.get('password')?.toString()
+  const username = formData.get('username')?.toString()
 
-        {/* Toggle between Sign In / Sign Up */}
-        <div className="mt-6 text-center text-sm text-slate-400">
-          {isSignUp ? "Already have an account? " : "Don't have an account? "}
-          <button
-            type="button"
-            onClick={() => setIsSignUp(!isSignUp)}
-            className="text-[#F97316] font-semibold hover:underline bg-transparent border-0 cursor-pointer p-0"
-          >
-            {isSignUp ? 'Sign In' : 'Sign Up'}
-          </button>
-        </div>
+  if (!email || !password) {
+    return { error: 'Email and password are required.' }
+  }
 
-      </div>
-    </div>
-  )
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        // This metadata field gets passed directly to the SQL trigger
+        username: username || email.split('@')[0],
+      },
+    },
+  })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  // Handle case where Supabase requires email verification before creating a session
+  if (data.user && !data.session) {
+    return { error: 'Account created! Please check your email inbox to confirm your address before logging in.' }
+  }
+
+  revalidatePath('/', 'layout')
+  redirect('/markets')
 }
