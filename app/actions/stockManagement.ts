@@ -37,14 +37,24 @@ export async function addStock(input: FormData | string | { symbol: string }) {
 
     const supabase = await createClient()
 
-    // Safe payload matching your original working schema columns only
+    // 1. Fetch current authenticated user
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { success: false, error: 'Unauthorized: User session not found.' }
+    }
+
+    // 2. Attach user_id to scope the stock insertion to this specific account
     const stockPayload = {
       symbol: symbol,
       company_name: profileData.name || symbol,
       current_price: Number(quoteData.c.toFixed(2)),
+      user_id: user.id,
     }
 
-    const { error } = await supabase.from('stocks').upsert(stockPayload, { onConflict: 'symbol' })
+    // 3. Upsert based on composite key (user_id + symbol)
+    const { error } = await supabase
+      .from('stocks')
+      .upsert(stockPayload, { onConflict: 'user_id, symbol' })
 
     if (error) {
       console.error('Supabase Add Stock Error:', error.message)
@@ -78,9 +88,24 @@ export async function removeStock(input: FormData | string | { symbol: string })
 
   const supabase = await createClient()
 
+  // 1. Fetch current authenticated user
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { success: false, error: 'Unauthorized: User session not found.' }
+  }
+
+  // 2. Delete rows matching both symbol AND user_id
   const [res1, res2] = await Promise.all([
-    supabase.from('stocks').delete({ count: 'exact' }).eq('symbol', symbol),
-    supabase.from('simulated_stocks').delete({ count: 'exact' }).eq('symbol', symbol)
+    supabase
+      .from('stocks')
+      .delete({ count: 'exact' })
+      .eq('symbol', symbol)
+      .eq('user_id', user.id),
+    supabase
+      .from('simulated_stocks')
+      .delete({ count: 'exact' })
+      .eq('symbol', symbol)
+      .eq('user_id', user.id)
   ])
 
   if (res1.error) console.error('Supabase stocks DELETE Error:', res1.error.message)
