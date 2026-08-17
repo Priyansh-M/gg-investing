@@ -10,6 +10,10 @@ export async function login(formData: FormData) {
   const email = formData.get('email') as string
   const password = formData.get('password') as string
 
+  if (!email || !password) {
+    return { error: 'Email and password are required.' }
+  }
+
   const { error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -19,9 +23,8 @@ export async function login(formData: FormData) {
     return { error: error.message }
   }
 
-  // Refresh Next.js layout cache and redirect to dashboard
   revalidatePath('/', 'layout')
-  redirect('/')
+  redirect('/markets')
 }
 
 export async function signup(formData: FormData) {
@@ -31,40 +34,57 @@ export async function signup(formData: FormData) {
   const password = formData.get('password') as string
   const username = formData.get('username') as string
 
-  // 1. Create user in Supabase Auth
+  if (!email || !password) {
+    return { error: 'Email and password are required.' }
+  }
+
+  const targetUsername = username || email.split('@')[0]
+
+  // 1. Create user in Supabase Auth and pass metadata to SQL triggers
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      data: {
+        username: targetUsername,
+      },
+    },
   })
 
   if (error) {
     return { error: error.message }
   }
 
-  // 2. Create matching profile entry in database
+  // 2. Safely create or update profile row without primary key conflicts
   if (data.user) {
-    const { error: profileError } = await supabase.from('profiles').insert({
-      id: data.user.id,
-      email: data.user.email,
-      cash_balance: 0.00,
-      username: username || email.split('@')[0], // Fallback to email prefix if username is empty
-    })
+    const { error: profileError } = await supabase.from('profiles').upsert(
+      {
+        id: data.user.id,
+        email: data.user.email,
+        cash_balance: 100000.00,
+        username: targetUsername,
+      },
+      { onConflict: 'id' }
+    )
 
     if (profileError) {
-      return { error: profileError.message }
+      console.error('Profile Upsert Error:', profileError.message)
     }
   }
 
-  // Refresh Next.js layout cache and redirect to dashboard
+  // Handle case where email verification is enabled in Supabase
+  if (data.user && !data.session) {
+    return { error: 'Account created! Please check your email inbox to confirm your account before logging in.' }
+  }
+
   revalidatePath('/', 'layout')
-  redirect('/dashboard')
+  redirect('/markets')
 }
 
 export async function logout() {
   const supabase = await createClient()
   await supabase.auth.signOut()
 
-  // Refresh Next.js layout cache and redirect to login page
   revalidatePath('/', 'layout')
   redirect('/login')
 }
