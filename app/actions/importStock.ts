@@ -69,8 +69,15 @@ export async function importRealStockToSandbox(input: string | FormData) {
 
     const supabase = await createClient()
 
-    // 3. Upsert to MAIN 'stocks' table (Preserves real market integrity)
+    // Get current user to ensure data isolation
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { success: false, error: 'Unauthorized: User session not found.' }
+    }
+
+    // 3. Upsert to MAIN 'stocks' table scoped strictly to this user
     const { error: mainStocksError } = await supabase.from('stocks').upsert({
+      user_id: user.id,
       symbol: symbol,
       company_name: companyName,
       current_price: realPrice,
@@ -80,14 +87,15 @@ export async function importRealStockToSandbox(input: string | FormData) {
       day_low: dayLow,
       open_price: openPrice,
       previous_close: previousClose
-    }, { onConflict: 'symbol' })
+    }, { onConflict: 'user_id, symbol' })
 
     if (mainStocksError) {
       console.error('Failed to update main stocks table:', mainStocksError)
     }
 
-    // 4. Upsert to SANDBOX 'simulated_stocks' table
+    // 4. Upsert to SANDBOX 'simulated_stocks' table scoped strictly to this user
     const { error: sandboxError } = await supabase.from('simulated_stocks').upsert({
+      user_id: user.id,
       symbol: symbol,
       company_name: `${companyName} (Imported)`,
       current_price: realPrice,
@@ -95,7 +103,7 @@ export async function importRealStockToSandbox(input: string | FormData) {
       liquidity_pool: 10000000, // Standard market maker pool balance
       sector: sector,
       price_history: priceHistory
-    }, { onConflict: 'symbol' })
+    }, { onConflict: 'user_id, symbol' })
 
     if (sandboxError) {
       console.error('Failed to update simulated stocks table:', sandboxError)
